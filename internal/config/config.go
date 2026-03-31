@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const configFileName = "gatorconfig.json"
+const configFileName = ".gatorconfig.json"
 
 type Config struct {
 	DbUrl string `json:"db_url"`
@@ -40,7 +40,10 @@ func (cfg *Config) SetUser(username string) error {
 	if err != nil {
 		return err
 	}
-	write(configPath, data)
+	err = write(configPath, data)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
