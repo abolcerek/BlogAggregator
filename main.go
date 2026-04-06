@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/xml"
 	"fmt"
+	"html"
+	"io"
+	"net/http"
 	"os"
 	"time"
+
 	"github.com/aaronbolcerek/BlogAggregator/internal/config"
 	"github.com/aaronbolcerek/BlogAggregator/internal/database"
 	"github.com/google/uuid"
@@ -24,6 +29,22 @@ type command struct {
 
 type commands struct {
 	commands map[string]func(*state, command) error
+}
+
+type RSSFeed struct {
+	Channel struct {
+		Title string `xml:"title"`
+		Link string `xml:"link"`
+		Description string `xml:"description"`
+		Item []RSSItem `xml:"item"`
+	} `xml:"channel"`
+}
+
+type RSSItem struct {
+	Title string `xml:"title"`
+	Link string `xml:"link"`
+	Description string `xml:"description"`
+	PubDate string `xml:"pubDate"`
 }
 
 func (c *commands) run(s *state, cmd command) error {
@@ -111,6 +132,52 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
+func handlerAggregate(s *state, cmd command) error {
+	ctx := context.Background()
+	feed, err := fetchFeed(ctx, "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+	fmt.Print(feed)
+	return nil
+}
+
+func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", feedURL, nil)
+	if err != nil {
+		return &RSSFeed{}, err
+	}
+	req.Header.Set("User-Agent", "gator")
+
+	client := http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return &RSSFeed{}, err
+	}
+	response_body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &RSSFeed{}, err
+	}
+	feed := RSSFeed{}
+	err = xml.Unmarshal(response_body, &feed)
+	if err != nil {
+		return &RSSFeed{}, err
+	}
+	decoded_title := html.UnescapeString(feed.Channel.Title)
+	decoded_description := html.UnescapeString(feed.Channel.Description)
+	feed.Channel.Title = decoded_title
+	feed.Channel.Description = decoded_description
+	for index, _ := range feed.Channel.Item {
+		decoded_title = html.UnescapeString(feed.Channel.Item[index].Title)
+		decoded_description = html.UnescapeString(feed.Channel.Item[index].Description)
+		feed.Channel.Item[index].Title = decoded_title
+		feed.Channel.Item[index].Description = decoded_description
+	}
+	return &feed, nil
+
+}
+
 func main() {
 	original_config, err := config.Read()
 	if err != nil {
@@ -134,6 +201,7 @@ func main() {
 	cmds.register("register", handlerRegister)
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerUsers)
+	cmds.register("agg", handlerAggregate)
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
