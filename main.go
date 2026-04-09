@@ -132,9 +132,28 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
-func handlerAggregate(s *state, cmd command) error {
+func handlerAddFeed(s *state, cmd command) error {
+	if len(cmd.args) != 2 {
+		return fmt.Errorf("Incorrect number of arguments\n")
+	}
 	ctx := context.Background()
-	feed, err := fetchFeed(ctx, "https://www.wagslane.dev/index.xml")
+	current_user := s.config.CurrentUserName
+	user, err := s.db.GetUser(ctx, current_user)
+	if err != nil {
+		return err
+	}
+	created_at := time.Now()
+	updated_at := time.Now()
+	feed_params := database.CreateFeedParams{
+		ID: uuid.New(),
+		CreatedAt: created_at,
+		UpdatedAt: updated_at,
+		Name: cmd.args[0],
+		Url: cmd.args[1],
+		UserID: user.ID,
+	}
+	ctx = context.Background()
+	feed, err := s.db.CreateFeed(ctx, feed_params)
 	if err != nil {
 		return err
 	}
@@ -175,7 +194,6 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 		feed.Channel.Item[index].Description = decoded_description
 	}
 	return &feed, nil
-
 }
 
 func main() {
@@ -201,7 +219,7 @@ func main() {
 	cmds.register("register", handlerRegister)
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerUsers)
-	cmds.register("agg", handlerAggregate)
+	cmds.register("addfeed", handlerAddFeed)
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
