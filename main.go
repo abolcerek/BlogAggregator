@@ -157,7 +157,20 @@ func handlerAddFeed(s *state, cmd command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Print(feed)
+	ctx = context.Background()
+	created_at = time.Now()
+	updated_at = time.Now()
+	feed_follow_params := database.CreateFeedFollowParams{
+		ID: uuid.New(),
+		CreatedAt: created_at,
+		UpdatedAt: updated_at,
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+	_, err = s.db.CreateFeedFollow(ctx, feed_follow_params)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -196,6 +209,65 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	return &feed, nil
 }
 
+func handlerFeeds(s *state, cmd command) error {
+	ctx := context.Background()
+	feed, err := s.db.GetFeeds(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range feed {
+		fmt.Println(feed[i].Name)
+		fmt.Println(feed[i].Url)
+		fmt.Println(feed[i].UserName)
+	}
+	return nil
+}
+
+func handlerFollow(s *state, cmd command) error {
+	ctx := context.Background()
+	user, err := s.db.GetUser(ctx, s.config.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	ctx = context.Background()
+	feed, err := s.db.GetFeed(ctx, cmd.args[0])
+	if err != nil {
+		return err
+	}
+	ctx = context.Background()
+	created_at := time.Now()
+	updated_at := time.Now()
+	feed_follow_params := database.CreateFeedFollowParams{
+		ID: uuid.New(),
+		CreatedAt: created_at,
+		UpdatedAt: updated_at,
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+	_, err = s.db.CreateFeedFollow(ctx, feed_follow_params)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func handlerFollowing(s *state, cmd command) error {
+	ctx := context.Background()
+	user, err := s.db.GetUser(ctx, s.config.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	ctx = context.Background()
+	follow_feeds, err := s.db.GetFollowing(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	for i := range follow_feeds {
+		fmt.Println(follow_feeds[i].FeedName)
+	}
+	return nil
+}
+
 func main() {
 	original_config, err := config.Read()
 	if err != nil {
@@ -220,6 +292,9 @@ func main() {
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerUsers)
 	cmds.register("addfeed", handlerAddFeed)
+	cmds.register("feeds", handlerFeeds)
+	cmds.register("follow", handlerFollow)
+	cmds.register("following", handlerFollowing)
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
