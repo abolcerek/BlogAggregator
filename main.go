@@ -253,6 +253,15 @@ func handlerFollowing(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	ctx := context.Background()
+	err := s.db.Unfollow(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
 	return func(s *state, cmd command) error {
 		ctx := context.Background()
@@ -291,6 +300,7 @@ func main() {
 	cmds.register("feeds", handlerFeeds)
 	cmds.register("follow", middlewareLoggedIn(handlerFollow))
 	cmds.register("following", middlewareLoggedIn(handlerFollowing))
+	cmds.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
