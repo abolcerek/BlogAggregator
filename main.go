@@ -9,12 +9,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aaronbolcerek/BlogAggregator/internal/config"
 	"github.com/aaronbolcerek/BlogAggregator/internal/database"
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 type state struct {
@@ -132,6 +134,34 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	if len(cmd.args) > 1 {
+		return fmt.Errorf("Too many commands\n")
+	}
+	limit := 2
+	if len(cmd.args) == 1 {
+		val, err := strconv.Atoi(cmd.args[0])
+		if err != nil {
+			return fmt.Errorf("Limit it not an integer\n")
+		} else {
+			limit = val
+		}
+	}
+	ctx := context.Background()
+	posts_for_user_params := database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit: int32(limit),
+	}
+	posts, err := s.db.GetPostsForUser(ctx, posts_for_user_params)
+	if err != nil {
+		return err
+	}
+	for i := 0; i<len(posts); i++ {
+		fmt.Println(posts[i])
+	}
+	return nil
+}
+
 func handlerAddFeed(s *state, cmd command, user database.User) error {
 	if len(cmd.args) != 2 {
 		return fmt.Errorf("Incorrect number of arguments\n")
@@ -139,12 +169,13 @@ func handlerAddFeed(s *state, cmd command, user database.User) error {
 	ctx := context.Background()
 	created_at := time.Now()
 	updated_at := time.Now()
+	url := strings.TrimSpace(cmd.args[1])
 	feed_params := database.CreateFeedParams{
 		ID: uuid.New(),
 		CreatedAt: created_at,
 		UpdatedAt: updated_at,
 		Name: cmd.args[0],
-		Url: cmd.args[1],
+		Url: url,
 		UserID: user.ID,
 	}
 	ctx = context.Background()
@@ -299,6 +330,46 @@ func scrapeFeeds(s *state) error {
 	if err != nil {
 		return err
 	}
+	ctx = context.Background()
+	created_at := time.Now()
+	updated_at := time.Now()
+	layout := "Mon, 02 Jan 2006 15:04:05 -0700"
+	for i := range feed.Channel.Item {
+		published_time, err := time.Parse(layout, feed.Channel.Item[i].PubDate)
+		published_at := sql.NullTime {
+				Time: published_time,
+				Valid: true,
+		}
+		if err != nil {
+			published_at = sql.NullTime {
+			Time: published_time,
+			Valid: false,
+			}
+		}
+		description := sql.NullString{
+			String: feed.Channel.Item[i].Description,
+			Valid: true,
+		}
+		post_params := database.CreatePostParams {
+			ID: uuid.New(),
+			CreatedAt: created_at,
+			UpdatedAt: updated_at,
+			Title: feed.Channel.Item[i].Title,
+			Url: feed.Channel.Item[i].Link,
+			Description: description,
+			PublishedAt: published_at,
+			FeedID: fetched_feed.ID,
+		}
+		_, err = s.db.CreatePost(ctx, post_params)
+		if err != nil {
+			if pgErr, ok := err.(*pq.Error); ok {
+				if pgErr.Code == "23505" {
+					continue
+				}
+			}
+			return err
+		}
+	}
 	fmt.Println(feed.Channel.Title)
 	fmt.Println(feed.Channel.Link)
 	fmt.Println(feed.Channel.Description)
@@ -352,6 +423,7 @@ func main() {
 	cmds.register("following", middlewareLoggedIn(handlerFollowing))
 	cmds.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 	cmds.register("agg", middlewareLoggedIn(handlerAgg))
+	cmds.register("browse", middlewareLoggedIn(handlerBrowse))
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
