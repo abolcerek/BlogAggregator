@@ -14,5 +14,5 @@ CREATE TABLE feed_follows (
     UNIQUE (user_id, feed_id)
 );
 
--- +goose DOWN
+-- +goose Down
 DROP TABLE feed_follows;

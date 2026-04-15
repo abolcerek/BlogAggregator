@@ -182,6 +182,7 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	if err != nil {
 		return &RSSFeed{}, err
 	}
+	defer resp.Body.Close()
 	response_body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return &RSSFeed{}, err
@@ -201,6 +202,7 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 		feed.Channel.Item[index].Title = decoded_title
 		feed.Channel.Item[index].Description = decoded_description
 	}
+
 	return &feed, nil
 }
 
@@ -262,6 +264,54 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handlerAgg(s *state, cmd command, user database.User) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("Incorrect number of arguments\n")
+	}
+	response := cmd.args[0]
+	time_between_reqs, err := time.ParseDuration(response)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Collecting feeds every %s\n", time_between_reqs)
+	ticker := time.NewTicker(time_between_reqs)
+	for ; ; <-ticker.C {
+		err := scrapeFeeds(s)
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func scrapeFeeds(s *state) error {
+	ctx := context.Background()
+	fetched_feed, err := s.db.GetNextFeedToFetch(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = context.Background()
+	err = s.db.MarkFeedFetched(ctx, fetched_feed.ID)
+	if err != nil {
+		return err
+	}
+	ctx = context.Background()
+	feed, err := fetchFeed(ctx, fetched_feed.Url)
+	if err != nil {
+		return err
+	}
+	fmt.Println(feed.Channel.Title)
+	fmt.Println(feed.Channel.Link)
+	fmt.Println(feed.Channel.Description)
+	for i := range feed.Channel.Item {
+		fmt.Println(feed.Channel.Item[i].Title)
+		fmt.Println(feed.Channel.Item[i].Link)
+		fmt.Println(feed.Channel.Item[i].Description)
+		fmt.Println(feed.Channel.Item[i].PubDate)
+	}
+	return nil
+}
+
+
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
 	return func(s *state, cmd command) error {
 		ctx := context.Background()
@@ -296,11 +346,12 @@ func main() {
 	cmds.register("register", handlerRegister)
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerUsers)
-	cmds.register("addfeed", middlewareLoggedIn(handlerAddFeed))
 	cmds.register("feeds", handlerFeeds)
+	cmds.register("addfeed", middlewareLoggedIn(handlerAddFeed))
 	cmds.register("follow", middlewareLoggedIn(handlerFollow))
 	cmds.register("following", middlewareLoggedIn(handlerFollowing))
 	cmds.register("unfollow", middlewareLoggedIn(handlerUnfollow))
+	cmds.register("agg", middlewareLoggedIn(handlerAgg))
 	arguments := os.Args
 	if len(arguments) < 2 {
 		fmt.Printf("Please provide more than 1 argument\n")
